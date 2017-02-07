@@ -8,7 +8,7 @@
 #
 #  PowerShell script connects to specified delivery controller and export all VDI machines in Specified delivery group with flag if specified account is disabled
 #
-#  CSV File format: Machine, Users, Disabled
+#  CSV File format: Machine, Users, Enabled
 #
 #  .EXAMPLE
 #
@@ -57,7 +57,7 @@ Param(
 #
 # Fetching Machines information in specified delivery group on specified delivery controller
 #
-   $machines = get-brokermachine -AdminAddress $DeliveryController -DesktopGroupName $DeliveryGroup | select-object MachineName, AssociatedUserNames
+   $machines = get-brokermachine -AdminAddress $DeliveryController -DesktopGroupName $DeliveryGroup -MaxRecordCount 1000 | select-object MachineName, AssociatedUserNames
 #
 # Looping over all machines
 #
@@ -76,8 +76,13 @@ Param(
 #
 # Getting user account status
 #
-       $account = Get-ADUser $userString | Select-Object Enabled
-       $accountStatus = $account.Enabled
+       try{
+         $account = Get-ADUser $userString | Select-Object Enabled -ErrorAction Stop
+         $accountStatus = $account.Enabled
+       }
+       catch{
+         $accountStatus = "Unable to check"
+       }
 #
 # Writing to output file and console
 #
