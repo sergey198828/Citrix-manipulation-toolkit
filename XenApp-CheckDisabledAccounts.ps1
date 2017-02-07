@@ -2,13 +2,13 @@
 #
 #  .SYNOPSIS
 #
-#  XenApp-CheckDisabledAccounts -DeliveryController -DeliveryGroup [-OutputFile="ScriptDirectory\XenApp-DisabledAccounts.csv"]
+#  XenApp-CheckDisabledAccounts -DeliveryController -DeliveryGroup [-OutputFile="ScriptDirectory\XenApp-DisabledAccounts.csv"] [-delete]
 #
 #  .DESCRIPTION
 #
-#  PowerShell script connects to specified delivery controller and export all VDI machines in Specified delivery group with flag if specified account is disabled
+#  PowerShell script connects to specified delivery controller and export all VDI machines in Specified delivery group with flag if account of associated user is disabled (disabled users might be removed if delete flag set)
 #
-#  CSV File format: Machine, Users, Enabled
+#  CSV File format: Machine, Users, Enabled, Action
 #
 #  .EXAMPLE
 #
@@ -16,9 +16,9 @@
 #
 #     XenApp-CheckDisabledAccounts -DeliveryController "vmww4712" -DeliveryGroup "Mars Admin Desktops"
 #
-#  2. Connect to vmww4712 and fetch all users of "Mars Admin Desktops" Delivery Group to C:\Disabled.csv file
+#  2. Connect to vmww4712 and fetch all users of "Mars Admin Desktops" Delivery Group to C:\Disabled.csv file, removes disabled accounts association
 #
-#     XenApp-CheckDisabledAccounts -DeliveryController "vmww4712" -DeliveryGroup "Mars Admin Desktops" -OutputFile "C:\Disabled.csv"
+#     XenApp-CheckDisabledAccounts -DeliveryController "vmww4712" -DeliveryGroup "Mars Admin Desktops" -OutputFile "C:\Disabled.csv" -delete
 #
 #_______________________________________________________
 #  Start of parameters block
@@ -39,7 +39,12 @@ Param(
 #  Output file
 #
    [Parameter(Mandatory=$False)]
-   [string]$OutputFile=$PSScriptRoot+"\XenApp-DisabledAccounts.csv"
+   [string]$OutputFile=$PSScriptRoot+"\XenApp-DisabledAccounts.csv",
+#
+#  Delete flag, false by default
+#
+   [Parameter(Mandatory=$False)]
+   [switch]$delete
 )
 #
 # End of parameters block
@@ -53,7 +58,7 @@ Param(
 # Prepare output file
 #
    Write-host "Writing file "$OutputFile
-   Add-Content $OutputFile “Machine;User;Enabled”;
+   Add-Content $OutputFile “Machine;User;Enabled;Action”;
 #
 # Fetching Machines information in specified delivery group on specified delivery controller
 #
@@ -84,9 +89,20 @@ Param(
          $accountStatus = "Unable to check"
        }
 #
+# Removing disabled users
+#
+       $action = "Kept"
+       if($delete -eq $true){
+         if($accountStatus -eq $False){
+           Write-host "Removing "$associatedUser" from "$machineName -ForegroundColor "Red"
+######          Remove-BrokerUser -AdminAddress $DeliveryController -Machine $machineName -Name $associatedUser
+           $action = "Removed"
+         }
+       }
+#
 # Writing to output file and console
 #
        Write-host "User "$associatedUser" associated with "$machineName" Enabled="$accountStatus
-       Add-Content $OutputFile “$machineName;$associatedUser;$accountStatus”
+       Add-Content $OutputFile “$machineName;$associatedUser;$accountStatus;$action”
      }
    }
