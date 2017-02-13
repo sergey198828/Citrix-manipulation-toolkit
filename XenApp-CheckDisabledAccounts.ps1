@@ -2,23 +2,23 @@
 #
 #  .SYNOPSIS
 #
-#  XenApp-CheckDisabledAccounts -DeliveryController -DeliveryGroup [-OutputFile="ScriptDirectory\XenApp-DisabledAccounts.csv"] [-delete]
+#  XenApp-CheckDisabledAccounts -DeliveryGroup [-DeliveryController="localhost"] [-LogFile="ScriptDirectory\XenApp-DisabledAccounts.csv"] [-deleteOlderThanDays=0]
 #
 #  .DESCRIPTION
 #
-#  PowerShell script connects to specified delivery controller and export all VDI machines in Specified delivery group with flag if account of associated user is disabled (disabled users might be removed if delete flag set)
+#  PowerShell script connects to specified delivery controller and check all VDI machines in Specified delivery group if account of associated user is disabled (disabled users might be removed if deleteOlderThanDays flag set greater than 0 and last logon time greater than specified value).
 #
-#  CSV File format: Machine, Users, Enabled, Action
+#  CSV File format: Machine, User, Enabled, Last Connection Time, Days since last connection, Action
 #
 #  .EXAMPLE
 #
-#  1. Connect to vmww4712 and fetch all users of "Mars Admin Desktops" Delivery Group to ScriptDirectory\XenApp-DisabledAccounts.csv file
+#  1. Connect to localhost and fetch all users of "Mars Admin Desktops" Delivery Group to ScriptDirectory\XenApp-DisabledAccounts.csv file
 #
-#     XenApp-CheckDisabledAccounts -DeliveryController "vmww4712" -DeliveryGroup "Mars Admin Desktops"
+#     XenApp-CheckDisabledAccounts -DeliveryGroup "Mars Admin Desktops"
 #
-#  2. Connect to vmww4712 and fetch all users of "Mars Admin Desktops" Delivery Group to C:\Disabled.csv file, removes disabled accounts association
+#  2. Connect to vmww4712 and fetch all users of "Mars Admin Desktops" Delivery Group to C:\Disabled.csv file, removes disabled accounts association if last login time greater than 7 days
 #
-#     XenApp-CheckDisabledAccounts -DeliveryController "vmww4712" -DeliveryGroup "Mars Admin Desktops" -OutputFile "C:\Disabled.csv" -delete
+#     XenApp-CheckDisabledAccounts -DeliveryController "vmww4712" -DeliveryGroup "Mars Admin Desktops" -LogFile "C:\Disabled.csv" -deleteOlderThanDays 7
 #
 #_______________________________________________________
 #  Start of parameters block
@@ -26,25 +26,25 @@
 [CmdletBinding()]
 Param(
 #
-#  Delivery Controller
-#
-   [Parameter(Mandatory=$true)]
-   [string]$DeliveryController,
-#
 #  Delivery Group
 #
    [Parameter(Mandatory=$true)]
    [string]$DeliveryGroup,
 #
-#  Output file
+#  Delivery Controller
+#
+   [Parameter(Mandatory=$false)]
+   [string]$DeliveryController="localhost",
+#
+#  Log file
 #
    [Parameter(Mandatory=$False)]
-   [string]$OutputFile=$PSScriptRoot+"\XenApp-DisabledAccounts.csv",
+   [string]$LogFile=$PSScriptRoot+"\XenApp-DisabledAccounts.csv",
 #
-#  Delete flag, false by default
+#  Delete flag
 #
    [Parameter(Mandatory=$False)]
-   [switch]$delete
+   [int]$deleteOlderDays = 0
 )
 #
 # End of parameters block
@@ -55,22 +55,42 @@ Param(
 #
    Add-PSSnapin Citrix.Broker.Admin.V2
 #
-# Prepare output file
+# Getting current date and time
 #
-   Write-host "Writing file "$OutputFile
-   Add-Content $OutputFile “Machine;User;Enabled;Action”;
+   $CurrentDateTime = Get-Date
 #
-# Fetching Machines information in specified delivery group on specified delivery controller
+# Create log dirictory if not exist
 #
-   $machines = get-brokermachine -AdminAddress $DeliveryController -DesktopGroupName $DeliveryGroup -MaxRecordCount 1000 | select-object MachineName, AssociatedUserNames
+   $logDir = ([io.fileinfo]$LogFile).DirectoryName
+   if (-not (Test-Path $logDir)){
+     New-Item -ItemType Directory -Path $logDir
+     Write-Host $logDir" created" -ForegroundColor Yellow
+   }
 #
-# Looping over all machines
+# Prepare log file
+#
+   Write-host "Writing file "$LogFile -ForegroundColor Green
+   Add-Content $LogFile "---;---;---;$CurrentDateTime;---;---;---"
+   Add-Content $LogFile “Machine;User;Enabled;Last connection time;Days since last connection;Action”;
+#
+# Fetching Machines information in specified delivery group from specified delivery controller
+#
+   $machines = get-brokermachine -AdminAddress $DeliveryController -DesktopGroupName $DeliveryGroup -MaxRecordCount 1000 | select-object MachineName, AssociatedUserNames, LastConnectionTime
+#
+# Check each machine
 #
    foreach($machine in $machines){
      $machineName = $machine.MachineName
      $associatedUsers = $machine.AssociatedUserNames
+     $lastconnectiontime = $machine.LastConnectionTime
+     if($lastconnectiontime -eq $null){
+       $daysSinceLastConnection = 9999
+     }
+     else{
+       $daysSinceLastConnection = (New-TimeSpan -Start $lastconnectiontime -End $CurrentDateTime).Days
+     }
 #
-# Looping over all users associated with machine
+# Check all users associated with machine
 #
      foreach($associatedUser in $associatedUsers){
 #
@@ -86,23 +106,24 @@ Param(
          $accountStatus = $account.Enabled
        }
        catch{
-         $accountStatus = "Unable to check"
+         $accountStatus = "N/a"
        }
 #
-# Removing disabled users
+# Removing disabled users if last logon greater that specified number of days
 #
        $action = "Kept"
-       if($delete -eq $true){
-         if($accountStatus -eq $False){
+       if($accountStatus -eq $False){
+         $action = "Candidate for removal"
+         if(($deleteOlderDays -gt 0) -and ($daysSinceLastConnection -ge $deleteOlderDays)){
            Write-host "Removing "$associatedUser" from "$machineName -ForegroundColor "Red"
-######          Remove-BrokerUser -AdminAddress $DeliveryController -Machine $machineName -Name $associatedUser
+           Remove-BrokerUser -AdminAddress $DeliveryController -Machine $machineName -Name $associatedUser
            $action = "Removed"
          }
        }
 #
-# Writing to output file and console
+# Writing to log and console
 #
-       Write-host "User "$associatedUser" associated with "$machineName" Enabled="$accountStatus
-       Add-Content $OutputFile “$machineName;$associatedUser;$accountStatus;$action”
+       Write-host "User "$associatedUser" associated with "$machineName" Enabled="$accountStatus" Days since last connection "$daysSinceLastConnection" action "$action
+       Add-Content $LogFile “$machineName;$associatedUser;$accountStatus;$lastconnectiontime;$daysSinceLastConnection;$action”
      }
    }
