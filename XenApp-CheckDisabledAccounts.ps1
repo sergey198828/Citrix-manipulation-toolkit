@@ -70,7 +70,7 @@ Param(
 # Prepare log file
 #
    Write-host "Writing file "$LogFile -ForegroundColor Green
-   Add-Content $LogFile "---;---;---;$CurrentDateTime;---;---;---"
+   Add-Content $LogFile "$DeliveryGroup---;---;---;$CurrentDateTime;---;---;---"
    Add-Content $LogFile “Machine;User;Enabled;Last connection time;Days since last connection;Action”;
 #
 # Fetching Machines information in specified delivery group from specified delivery controller
@@ -106,7 +106,7 @@ Param(
          $accountStatus = $account.Enabled
        }
        catch{
-         $accountStatus = "N/a"
+         $accountStatus = $False
        }
 #
 # Removing disabled users if last logon greater that specified number of days
@@ -114,7 +114,7 @@ Param(
        $action = "Kept"
        if($accountStatus -eq $False){
          $action = "Candidate for removal"
-         if(($deleteOlderDays -gt 0) -and ($daysSinceLastConnection -ge $deleteOlderDays)){
+         if(($deleteOlderDays -ne 0) -and ($daysSinceLastConnection -ge $deleteOlderDays)){
            Write-host "Removing "$associatedUser" from "$machineName -ForegroundColor "Red"
            Remove-BrokerUser -AdminAddress $DeliveryController -Machine $machineName -Name $associatedUser
            $action = "Removed"
